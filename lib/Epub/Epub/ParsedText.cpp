@@ -11,6 +11,7 @@
 constexpr int MAX_COST = std::numeric_limits<int>::max();
 
 void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle) {
+  // Serial.printf("addWord: %s\n", word.c_str());
   if (word.empty()) return;
 
   words.push_back(std::move(word));

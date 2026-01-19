@@ -49,6 +49,8 @@ class SettingsActivity final : public ActivityWithSubactivity {
   SemaphoreHandle_t renderingMutex = nullptr;
   bool updateRequired = false;
   int selectedSettingIndex = 0;  // Currently selected setting
+  int scrollOffset = 0;          // Index of the first visible setting
+  static constexpr int itemsPerPage = 25;
   const std::function<void()> onGoHome;
 
   static void taskTrampoline(void* param);

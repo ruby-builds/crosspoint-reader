@@ -1,6 +1,5 @@
 #include "SettingsActivity.h"
 
-#include <EpdFontLoader.h>
 #include <GfxRenderer.h>
 #include <HardwareSerial.h>
 
@@ -8,14 +7,13 @@
 
 #include "CalibreSettingsActivity.h"
 #include "CrossPointSettings.h"
-#include "FontSelectionActivity.h"
 #include "MappedInputManager.h"
 #include "OtaUpdateActivity.h"
 #include "fontIds.h"
 
 // Define the static settings list
 namespace {
-constexpr int settingsCount = 21;
+constexpr int settingsCount = 20;
 const SettingInfo settingsList[settingsCount] = {
     // Should match with SLEEP_SCREEN_MODE
     SettingInfo::Enum("Sleep Screen", &CrossPointSettings::sleepScreen, {"Dark", "Light", "Custom", "Cover", "None"}),
@@ -33,8 +31,7 @@ const SettingInfo settingsList[settingsCount] = {
                       {"Prev, Next", "Next, Prev"}),
     SettingInfo::Toggle("Long-press Chapter Skip", &CrossPointSettings::longPressChapterSkip),
     SettingInfo::Enum("Reader Font Family", &CrossPointSettings::fontFamily,
-                      {"Bookerly", "Noto Sans", "Open Dyslexic", "Custom"}),
-    SettingInfo::Action("Set Custom Font Family"),
+                      {"Bookerly", "Noto Sans", "Open Dyslexic"}),
     SettingInfo::Enum("Reader Font Size", &CrossPointSettings::fontSize, {"Small", "Medium", "Large", "X Large"}),
     SettingInfo::Enum("Reader Line Spacing", &CrossPointSettings::lineSpacing, {"Tight", "Normal", "Wide"}),
     SettingInfo::Value("Reader Screen Margin", &CrossPointSettings::screenMargin, {5, 40, 5}),
@@ -115,15 +112,6 @@ void SettingsActivity::loop() {
     selectedSettingIndex = (selectedSettingIndex < settingsCount - 1) ? (selectedSettingIndex + 1) : 0;
     updateRequired = true;
   }
-
-  if (updateRequired) {
-    // Ensure selected item is in view
-    if (selectedSettingIndex < scrollOffset) {
-      scrollOffset = selectedSettingIndex;
-    } else if (selectedSettingIndex >= scrollOffset + itemsPerPage) {
-      scrollOffset = selectedSettingIndex - itemsPerPage + 1;
-    }
-  }
 }
 
 void SettingsActivity::toggleCurrentSetting() {
@@ -133,7 +121,6 @@ void SettingsActivity::toggleCurrentSetting() {
   }
 
   const auto& setting = settingsList[selectedSettingIndex];
-  Serial.printf("[Settings] Toggling: '%s' (Type: %d)\n", setting.name, (int)setting.type);
 
   if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
     // Toggle the boolean value using the member pointer
@@ -142,12 +129,6 @@ void SettingsActivity::toggleCurrentSetting() {
   } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
     const uint8_t currentValue = SETTINGS.*(setting.valuePtr);
     SETTINGS.*(setting.valuePtr) = (currentValue + 1) % static_cast<uint8_t>(setting.enumValues.size());
-
-    if (strcmp(setting.name, "Reader Font Family") == 0 || strcmp(setting.name, "Reader Font Size") == 0) {
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
-      EpdFontLoader::loadFontsFromSd(renderer);
-      xSemaphoreGive(renderingMutex);
-    }
   } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
     // Decreasing would also be nice for large ranges I think but oh well can't have everything
     const int8_t currentValue = SETTINGS.*(setting.valuePtr);
@@ -174,17 +155,6 @@ void SettingsActivity::toggleCurrentSetting() {
         updateRequired = true;
       }));
       xSemaphoreGive(renderingMutex);
-    } else if (strcmp(setting.name, "Set Custom Font Family") == 0) {
-      Serial.println("[Settings] Launching FontSelectionActivity");
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
-      subActivity.reset(new FontSelectionActivity(renderer, mappedInput, [this] {
-        subActivity.reset();
-        updateRequired = true;
-      }));
-      subActivity->onEnter();
-      xSemaphoreGive(renderingMutex);
-    } else {
-      Serial.printf("[Settings] Unknown action: %s\n", setting.name);
     }
   } else {
     // Only toggle if it's a toggle type and has a value pointer
@@ -217,41 +187,28 @@ void SettingsActivity::render() const {
   renderer.drawCenteredText(UI_12_FONT_ID, 15, "Settings", true, EpdFontFamily::BOLD);
 
   // Draw selection
-  if (selectedSettingIndex >= scrollOffset && selectedSettingIndex < scrollOffset + itemsPerPage) {
-    renderer.fillRect(0, 60 + (selectedSettingIndex - scrollOffset) * 30 - 2, pageWidth - 1, 30);
-  }
+  renderer.fillRect(0, 60 + selectedSettingIndex * 30 - 2, pageWidth - 1, 30);
 
-  // Draw visible settings
-  for (int i = 0; i < itemsPerPage; i++) {
-    int index = scrollOffset + i;
-    if (index >= settingsCount) break;
-
+  // Draw all settings
+  for (int i = 0; i < settingsCount; i++) {
     const int settingY = 60 + i * 30;  // 30 pixels between settings
 
     // Draw setting name
-    renderer.drawText(UI_10_FONT_ID, 20, settingY, settingsList[index].name, index != selectedSettingIndex);
+    renderer.drawText(UI_10_FONT_ID, 20, settingY, settingsList[i].name, i != selectedSettingIndex);
 
     // Draw value based on setting type
     std::string valueText = "";
-    if (settingsList[index].type == SettingType::TOGGLE && settingsList[index].valuePtr != nullptr) {
-      const bool value = SETTINGS.*(settingsList[index].valuePtr);
+    if (settingsList[i].type == SettingType::TOGGLE && settingsList[i].valuePtr != nullptr) {
+      const bool value = SETTINGS.*(settingsList[i].valuePtr);
       valueText = value ? "ON" : "OFF";
-    } else if (settingsList[index].type == SettingType::ENUM && settingsList[index].valuePtr != nullptr) {
-      const uint8_t value = SETTINGS.*(settingsList[index].valuePtr);
-      valueText = settingsList[index].enumValues[value];
-    } else if (settingsList[index].type == SettingType::VALUE && settingsList[index].valuePtr != nullptr) {
-      valueText = std::to_string(SETTINGS.*(settingsList[index].valuePtr));
-    } else if (settingsList[index].type == SettingType::ACTION &&
-               strcmp(settingsList[index].name, "Set Custom Font Family") == 0) {
-      if (SETTINGS.fontFamily == CrossPointSettings::FONT_CUSTOM) {
-        valueText = SETTINGS.customFontFamily;
-      }
+    } else if (settingsList[i].type == SettingType::ENUM && settingsList[i].valuePtr != nullptr) {
+      const uint8_t value = SETTINGS.*(settingsList[i].valuePtr);
+      valueText = settingsList[i].enumValues[value];
+    } else if (settingsList[i].type == SettingType::VALUE && settingsList[i].valuePtr != nullptr) {
+      valueText = std::to_string(SETTINGS.*(settingsList[i].valuePtr));
     }
-    if (!valueText.empty()) {
-      const auto width = renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str());
-      renderer.drawText(UI_10_FONT_ID, pageWidth - 20 - width, settingY, valueText.c_str(),
-                        index != selectedSettingIndex);
-    }
+    const auto width = renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str());
+    renderer.drawText(UI_10_FONT_ID, pageWidth - 20 - width, settingY, valueText.c_str(), i != selectedSettingIndex);
   }
 
   // Draw version text above button hints

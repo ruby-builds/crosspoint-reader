@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <EInkDisplay.h>
+#include <EpdFontLoader.h>
 #include <Epub.h>
 #include <GfxRenderer.h>
 #include <InputManager.h>
@@ -263,15 +264,20 @@ void setupDisplayAndFonts() {
 }
 
 void setup() {
+  // force serial for debugging
+  Serial.begin(115200);
+  delay(500);
+  Serial.printf("[%lu] [DBG] setup() start - FIRMWARE DEBUG BUILD 001\n", millis());
+  Serial.flush();
+
   t1 = millis();
 
   // Only start serial if USB connected
   pinMode(UART0_RXD, INPUT);
-  if (digitalRead(UART0_RXD) == HIGH) {
-    Serial.begin(115200);
-  }
 
   inputManager.begin();
+  Serial.printf("[%lu] [DBG] inputManager initialized\n", millis());
+
   // Initialize pins
   pinMode(BAT_GPIO0, INPUT);
 
@@ -287,21 +293,37 @@ void setup() {
     enterNewActivity(new FullScreenMessageActivity(renderer, mappedInputManager, "SD card error", EpdFontFamily::BOLD));
     return;
   }
+  Serial.printf("[%lu] [DBG] SdMan.begin() success\n", millis());
 
   SETTINGS.loadFromFile();
+  Serial.printf("[%lu] [DBG] SETTINGS loaded\n", millis());
+
+  Serial.flush();
 
   // verify power button press duration after we've read settings.
-  verifyWakeupLongPress();
+  // verifyWakeupLongPress(); // Disabled for debugging to prevent auto-shutdown
+  // Serial.printf("[%lu] [DBG] Wakeup long press verified\n", millis());
 
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
   Serial.printf("[%lu] [   ] Starting CrossPoint version " CROSSPOINT_VERSION "\n", millis());
+  Serial.flush();
 
   setupDisplayAndFonts();
+  Serial.printf("[%lu] [DBG] setupDisplayAndFonts done\n", millis());
+  Serial.flush();
+
+  EpdFontLoader::loadFontsFromSd(renderer);
+  Serial.printf("[%lu] [DBG] loadFontsFromSd done\n", millis());
+  Serial.flush();
 
   exitActivity();
   enterNewActivity(new BootActivity(renderer, mappedInputManager));
+  Serial.printf("[%lu] [DBG] BootActivity entered\n", millis());
+  Serial.flush();
 
   APP_STATE.loadFromFile();
+  Serial.printf("[%lu] [DBG] APP_STATE loaded\n", millis());
+
   if (APP_STATE.openEpubPath.empty()) {
     onGoHome();
   } else {
@@ -314,6 +336,7 @@ void setup() {
   }
 
   // Ensure we're not still holding the power button before leaving setup
+  Serial.printf("[%lu] [   ] Setup complete\n", millis());
   waitForPowerRelease();
 }
 

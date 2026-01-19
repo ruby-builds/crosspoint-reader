@@ -59,7 +59,14 @@ void EpubReaderActivity::onEnter() {
     if (f.read(data, 4) == 4) {
       currentSpineIndex = data[0] + (data[1] << 8);
       nextPageNumber = data[2] + (data[3] << 8);
-      Serial.printf("[%lu] [ERS] Loaded cache: %d, %d\n", millis(), currentSpineIndex, nextPageNumber);
+
+      // Validation: If loaded index is invalid, reset to 0
+      if (currentSpineIndex >= epub->getSpineItemsCount()) {
+        Serial.printf("[%lu] [ERS] Loaded invalid spine index %d (max %d), resetting\n", millis(), currentSpineIndex,
+                      epub->getSpineItemsCount());
+        currentSpineIndex = 0;
+        nextPageNumber = 0;
+      }
     }
     f.close();
   }
@@ -69,8 +76,6 @@ void EpubReaderActivity::onEnter() {
     int textSpineIndex = epub->getSpineIndexForTextReference();
     if (textSpineIndex != 0) {
       currentSpineIndex = textSpineIndex;
-      Serial.printf("[%lu] [ERS] Opened for first time, navigating to text reference at index %d\n", millis(),
-                    textSpineIndex);
     }
   }
 
@@ -260,7 +265,7 @@ void EpubReaderActivity::renderScreen() {
 
   if (!section) {
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
-    Serial.printf("[%lu] [ERS] Loading file: %s, index: %d\n", millis(), filepath.c_str(), currentSpineIndex);
+
     section = std::unique_ptr<Section>(new Section(epub, currentSpineIndex, renderer));
 
     const uint16_t viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
@@ -269,8 +274,6 @@ void EpubReaderActivity::renderScreen() {
     if (!section->loadSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
                                   SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                   viewportHeight)) {
-      Serial.printf("[%lu] [ERS] Cache not found, building...\n", millis());
-
       // Progress bar dimensions
       constexpr int barWidth = 200;
       constexpr int barHeight = 10;
@@ -319,7 +322,6 @@ void EpubReaderActivity::renderScreen() {
         return;
       }
     } else {
-      Serial.printf("[%lu] [ERS] Cache found, skipping build...\n", millis());
     }
 
     if (nextPageNumber == UINT16_MAX) {
@@ -353,11 +355,17 @@ void EpubReaderActivity::renderScreen() {
       Serial.printf("[%lu] [ERS] Failed to load page from SD - clearing section cache\n", millis());
       section->clearCache();
       section.reset();
-      return renderScreen();
+
+      // Prevent infinite recursion. If load fails, show error.
+      renderer.clearScreen();
+      renderer.drawCenteredText(UI_12_FONT_ID, 300, "Error loading page", true, EpdFontFamily::BOLD);
+      renderer.drawCenteredText(UI_10_FONT_ID, 330, "File system error or corruption", true);
+      renderStatusBar(orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
+      renderer.displayBuffer();
+      return;
     }
     const auto start = millis();
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
-    Serial.printf("[%lu] [ERS] Rendered page in %dms\n", millis(), millis() - start);
   }
 
   FsFile f;
@@ -386,11 +394,11 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   }
 
   // Save bw buffer to reset buffer state after grayscale data sync
-  renderer.storeBwBuffer();
+  bool bufferStored = renderer.storeBwBuffer();
 
   // grayscale rendering
-  // TODO: Only do this if font supports it
-  if (SETTINGS.textAntiAliasing) {
+  // Only do this if font supports it AND we successfully stored the backup buffer
+  if (SETTINGS.textAntiAliasing && bufferStored) {
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
     page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
