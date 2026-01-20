@@ -73,3 +73,10 @@ The EPUB reader core was modified to improve stability, performance, and memory 
 *   Rendering: `lib/GfxRenderer/GfxRenderer.{cpp,h}`, `lib/EpdFont/EpdFont.{cpp,h}`
 *   EPUB Engine: `lib/Epub/*` (various files optimized and cleaned)
 *   Tools: `lib/EpdFont/scripts/fontconvert.py`
+
+### Update: Enhanced Font Discovery & Format Support (2025-01-20)
+
+*   **V1 Format Support**: Added full support for the newer V1 `.epdfont` format (32-byte header, uint32 offsets) used by the web-based converter (`epdfont.clev.app`).
+*   **V0 Format Fix**: Fixed a regression in V0 font loading where the header read was truncated to 32 bytes (instead of 48), restoring support for `LibreBaskerville` and other legacy fonts.
+*   **Flexible Discovery**: Updated `FontManager` to support `Family_Style_Size` (underscore-separated) naming conventions, enabling compatibility with a wider range of auto-generated filenames.
+*   **Documentation**: Rewrote `FONT_CONVERSION.md` to cover both the Python script and the new web converter.

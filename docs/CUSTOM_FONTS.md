@@ -19,7 +19,9 @@ To optimize for the limited RAM of the ESP32 and the specific requirements of E-
 *   **Input**: TTF/OTF files.
 *   **Output**: `.epdfont` binary file.
 *   **Format Details**:
-    *   **Header**: Contains metadata (magic "EPDF", version, metrics, offsets).
+    *   **Header**:
+        *   **Version 1 (New)**: 32-byte header, uint32 offsets. Compact and efficient.
+        *   **Version 0 (Legacy)**: 48-byte header, uint16 offsets. Retained for backward compatibility.
     *   **Intervals**: Unicode ranges supported by the font.
     *   **Glyphs**: Metrics for each character (width, height, advance, offsets).
     *   **Bitmaps**: 1-bit or 2-bit (antialiased) pixel data for glyphs.
@@ -29,9 +31,10 @@ To optimize for the limited RAM of the ESP32 and the specific requirements of E-
 Fonts are stored on the SD card in the `/fonts` directory.
 
 *   **Location**: `/fonts`
-*   **Naming Convention**: `Family-Style-Size.epdfont`
-    *   Example: `Literata-Regular-14.epdfont`
-    *   Example: `Literata-BoldItalic-14.epdfont`
+*   **Naming Convention**:
+    *   **Standard**: `Family-Style-Size.epdfont` (e.g., `LibreBaskerville-Regular-14.epdfont`)
+    *   **Web Converter**: `Family_Style_Size.epdfont` (e.g., `Aileron_Regular_18.epdfont`)
+    *   **Single File**: `Family.epdfont` (e.g., `Aileron.epdfont`) - automatically detected as Regular style.
 *   **Manager**: `src/managers/FontManager.cpp`
     *   **Scans** the `/fonts` directory on startup/demand.
     *   **Groups** files into `Family -> Size -> Styles (Regular, Bold, Italic, BoldItalic)`.

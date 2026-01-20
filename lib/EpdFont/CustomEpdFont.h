@@ -22,7 +22,7 @@ struct GlyphStructCacheEntry {
 class CustomEpdFont : public EpdFont {
  public:
   CustomEpdFont(const String& filePath, const EpdFontData* data, uint32_t offsetIntervals, uint32_t offsetGlyphs,
-                uint32_t offsetBitmaps);
+                uint32_t offsetBitmaps, int version = 0);
   ~CustomEpdFont() override;
 
   const EpdGlyph* getGlyph(uint32_t cp, const EpdFontStyles::Style style = EpdFontStyles::REGULAR) const override;
@@ -45,6 +45,7 @@ class CustomEpdFont : public EpdFont {
   mutable GlyphStructCacheEntry glyphCache[GLYPH_CACHE_CAPACITY];
 
   mutable uint32_t currentAccessCount = 0;
+  int version = 0;
 
   void clearCache() const;
 };

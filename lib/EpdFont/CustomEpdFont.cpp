@@ -6,12 +6,13 @@
 #include <algorithm>
 
 CustomEpdFont::CustomEpdFont(const String& filePath, const EpdFontData* data, uint32_t offsetIntervals,
-                             uint32_t offsetGlyphs, uint32_t offsetBitmaps)
+                             uint32_t offsetGlyphs, uint32_t offsetBitmaps, int version)
     : EpdFont(data),
       filePath(filePath),
       offsetIntervals(offsetIntervals),
       offsetGlyphs(offsetGlyphs),
-      offsetBitmaps(offsetBitmaps) {
+      offsetBitmaps(offsetBitmaps),
+      version(version) {
   // Initialize bitmap cache
   for (size_t i = 0; i < BITMAP_CACHE_CAPACITY; i++) {
     bitmapCache[i].data = nullptr;
@@ -112,26 +113,8 @@ const EpdGlyph* CustomEpdFont::getGlyph(uint32_t cp, const EpdFontStyles::Style 
     }
 
     if (foundInterval) {
-      // Calculate total glyphs to ensure bounds safety
-      uint32_t totalGlyphCount = (offsetBitmaps - offsetGlyphs) / 13;
-      if (glyphIndex >= totalGlyphCount) {
-        Serial.printf("CustomEpdFont: Glyph index %u out of bounds (total %u)\n", glyphIndex, totalGlyphCount);
-        // If out of bounds, and we haven't tried fallback, try it.
-        if (!triedFallback) {
-          if (currentCp == 0x2018 || currentCp == 0x2019) {
-            currentCp = 0x0027;
-            triedFallback = true;
-            continue;
-          } else if (currentCp == 0x201C || currentCp == 0x201D) {
-            currentCp = 0x0022;
-            triedFallback = true;
-            continue;
-          }
-        }
-        return nullptr;
-      }
-
-      uint32_t glyphFileOffset = offsetGlyphs + (glyphIndex * 13);
+      uint32_t stride = (version == 1) ? 16 : 13;
+      uint32_t glyphFileOffset = offsetGlyphs + (glyphIndex * stride);
 
       if (!fontFile.isOpen()) {
         if (!SdMan.openFileForRead("CustomFont", filePath.c_str(), fontFile)) {
@@ -146,22 +129,62 @@ const EpdGlyph* CustomEpdFont::getGlyph(uint32_t cp, const EpdFontStyles::Style 
         return nullptr;
       }
 
-      uint8_t glyphBuf[13];
-      if (fontFile.read(glyphBuf, 13) != 13) {
-        Serial.println("CustomEpdFont: Read failed (glyph entry)");
-        fontFile.close();
-        return nullptr;
-      }
+      uint8_t w, h, adv, res = 0;
+      int16_t l, t = 0;
+      uint32_t dLen, dOffset = 0;
 
-      uint8_t w = glyphBuf[0];
-      uint8_t h = glyphBuf[1];
-      uint8_t adv = glyphBuf[2];
-      int8_t l = (int8_t)glyphBuf[3];
-      // glyphBuf[4] unused
-      int8_t t = (int8_t)glyphBuf[5];
-      // glyphBuf[6] unused
-      uint16_t dLen = glyphBuf[7] | (glyphBuf[8] << 8);
-      uint32_t dOffset = glyphBuf[9] | (glyphBuf[10] << 8) | (glyphBuf[11] << 16) | (glyphBuf[12] << 24);
+      if (version == 1) {
+        // New format (16 bytes)
+        uint8_t glyphBuf[16];
+        if (fontFile.read(glyphBuf, 16) != 16) {
+          Serial.println("CustomEpdFont: Read failed (glyph entry v1)");
+          fontFile.close();
+          return nullptr;
+        }
+
+        /*
+          view.setUint8(offset++, glyph.width);
+          view.setUint8(offset++, glyph.height);
+          view.setUint8(offset++, glyph.advanceX);
+          view.setUint8(offset++, 0);
+          view.setInt16(offset, glyph.left, true);
+          offset += 2;
+          view.setInt16(offset, glyph.top, true);
+          offset += 2;
+          view.setUint32(offset, glyph.dataLength, true);
+          offset += 4;
+          view.setUint32(offset, glyph.dataOffset, true);
+          offset += 4;
+        */
+
+        w = glyphBuf[0];
+        h = glyphBuf[1];
+        adv = glyphBuf[2];
+        res = glyphBuf[3];
+        l = (int16_t)(glyphBuf[4] | (glyphBuf[5] << 8));  // Little endian int16
+        t = (int16_t)(glyphBuf[6] | (glyphBuf[7] << 8));  // Little endian int16
+        dLen = glyphBuf[8] | (glyphBuf[9] << 8) | (glyphBuf[10] << 16) | (glyphBuf[11] << 24);
+        dOffset = glyphBuf[12] | (glyphBuf[13] << 8) | (glyphBuf[14] << 16) | (glyphBuf[15] << 24);
+
+      } else {
+        // Old format (13 bytes)
+        uint8_t glyphBuf[13];
+        if (fontFile.read(glyphBuf, 13) != 13) {
+          Serial.println("CustomEpdFont: Read failed (glyph entry)");
+          fontFile.close();
+          return nullptr;
+        }
+
+        w = glyphBuf[0];
+        h = glyphBuf[1];
+        adv = glyphBuf[2];
+        l = (int8_t)glyphBuf[3];
+        // glyphBuf[4] unused
+        t = (int8_t)glyphBuf[5];
+        // glyphBuf[6] unused
+        dLen = glyphBuf[7] | (glyphBuf[8] << 8);
+        dOffset = glyphBuf[9] | (glyphBuf[10] << 8) | (glyphBuf[11] << 16) | (glyphBuf[12] << 24);
+      }
 
       /*
       Serial.printf("[CEF] Parsed Glyph %u: Off=%u, Len=%u, W=%u, H=%u, L=%d, T=%d\n",
