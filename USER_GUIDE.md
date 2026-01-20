@@ -132,7 +132,7 @@ You can customize the sleep screen by placing custom images in specific location
 
 You can load your own custom fonts onto the device by converting them to the required `.epdfont` format.
 
-See the **[Font Conversion Guide](FONT_CONVERSION.md)** for detailed instructions on how to use the conversion tool.
+See the **[Font Conversion Guide](docs/FONT_CONVERSION.md)** for detailed instructions on how to use the conversion tool.
 
 ---
 
