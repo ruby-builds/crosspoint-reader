@@ -301,8 +301,8 @@ void setup() {
   Serial.flush();
 
   // verify power button press duration after we've read settings.
-  // verifyWakeupLongPress(); // Disabled for debugging to prevent auto-shutdown
-  // Serial.printf("[%lu] [DBG] Wakeup long press verified\n", millis());
+  verifyWakeupLongPress();
+  Serial.printf("[%lu] [DBG] Wakeup long press verified\n", millis());
 
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
   Serial.printf("[%lu] [   ] Starting CrossPoint version " CROSSPOINT_VERSION "\n", millis());
