@@ -211,44 +211,60 @@ for index, glyph in enumerate(all_glyphs):
 if isBinary:
     import struct
     with open(f"{font_name}.epdfont", "wb") as f:
-        # Magic
+        # Custom Header Format (48 bytes total)
+        # 0 : Magic (4) "EPDF"
+        # 4 : IntervalCount (4)
+        # 8 : FileSize (4) - Calculated later
+        # 12: Height (4)
+        # 16: GlyphCount (4)
+        # 20: Ascender (4)
+        # 24: Reserved (4) - (Previously descender or padding?)
+        # 28: Descender (4)
+        # 32: Is2Bit (4)
+        # 36: OffsetIntervals (4)
+        # 40: OffsetGlyphs (4)
+        # 44: OffsetBitmaps (4)
+
+        header_size = 48
+        intervals_size = len(intervals) * 12 # 3 * 4 bytes
+        glyphs_size = len(glyph_props) * 13  # 13 bytes per glyph
+        bitmaps_size = len(bytes(glyph_data))
+
+        offset_intervals = header_size
+        offset_glyphs = offset_intervals + intervals_size
+        offset_bitmaps = offset_glyphs + glyphs_size
+        file_size = offset_bitmaps + bitmaps_size
+
+        # Pack header
         f.write(b"EPDF")
-        # Metrics (22 bytes)
-        # intervalCount (uint32_t), advanceY (uint8_t), ascender (int32_t), descender (int32_t), is2Bit (uint8_t), totalGlyphCount (uint32_t)
-        f.write(struct.pack("<IBiiBI", len(intervals), norm_ceil(face.size.height), norm_ceil(face.size.ascender), norm_floor(face.size.descender), 1 if is2Bit else 0, len(glyph_props)))
+        f.write(struct.pack("<I", len(intervals)))     # 4
+        f.write(struct.pack("<I", file_size))          # 8
+        f.write(struct.pack("<I", norm_ceil(face.size.height))) # 12
+        f.write(struct.pack("<I", len(glyph_props)))   # 16
+        f.write(struct.pack("<i", norm_ceil(face.size.ascender))) # 20
+        f.write(struct.pack("<i", 0))                  # 24 (Reserved/Unknown in C++)
+        f.write(struct.pack("<i", norm_floor(face.size.descender))) # 28
+        f.write(struct.pack("<I", 1 if is2Bit else 0)) # 32 (Is2Bit, using 4 bytes to align)
+        f.write(struct.pack("<I", offset_intervals))   # 36
+        f.write(struct.pack("<I", offset_glyphs))      # 40
+        f.write(struct.pack("<I", offset_bitmaps))     # 44
+
         # Intervals
-        offset = 0
+        current_offset = 0 # Offset relative to start of bitmaps
         for i_start, i_end in intervals:
-            f.write(struct.pack("<III", i_start, i_end, offset))
-            offset += i_end - i_start + 1
+            f.write(struct.pack("<III", i_start, i_end, current_offset))
+            # Calculate offset increment based on number of glyphs in this interval
+            # This logic mimics the C++ loop: offset += i_end - i_start + 1
+            # Note: The 'offset' field in intervals points to the INDEX in the Glyph table, not byte offset.
+            current_offset += i_end - i_start + 1
+
         # Glyphs
         for g in glyph_props:
-            # dataOffset (uint32_t), dataLength (uint16_t), width (uint8_t), height (uint8_t), advanceX (uint8_t), left (int8_t), top (int8_t)
-            # wait, GlyphProps has width, height, advance_x, left, top, data_length, data_offset, code_point
-            # We need: dataOffset (4), dataLength (2), width (1), height (1), advanceX (1), left (1), top (1) = 11 bytes?
-            # Let's use 13 bytes as planned to be safer or just 11. 
-            # Original EpdGlyph: 
-            #   uint32_t dataOffset;
-            #   uint16_t dataLength;
-            #   uint8_t width;
-            #   uint8_t height;
-            #   uint8_t advanceX;
-            #   int8_t left;
-            #   int8_t top;
-            # Total: 4+2+1+1+1+1+1 = 11 bytes.
-            # I will use 13 bytes to align better if needed, but 11 is fine.
-            # Let's use 13 bytes as per plan: 4+2+1+1+1+1+1 + 2 padding.
-            # CustomEpdFont.cpp expects:
-            # glyphBuf[0] = w
-            # glyphBuf[1] = h
-            # glyphBuf[2] = adv
-            # glyphBuf[3] = l (signed)
-            # glyphBuf[4] = unused
-            # glyphBuf[5] = t (signed)
-            # glyphBuf[6] = unused
-            # glyphBuf[7-8] = dLen
-            # glyphBuf[9-12] = dOffset
+            # 13 bytes per glyph
             f.write(struct.pack("<BBB b B b B H I", g.width, g.height, g.advance_x, g.left, 0, g.top, 0, g.data_length, g.data_offset))
+        
+        # Bitmaps
+        f.write(bytes(glyph_data))
         # Bitmaps
         f.write(bytes(glyph_data))
     print(f"Generated {font_name}.epdfont")
