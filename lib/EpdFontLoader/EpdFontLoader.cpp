@@ -2,13 +2,19 @@
 
 #include <HardwareSerial.h>
 
+#include <algorithm>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "../../src/CrossPointSettings.h"
 #include "../../src/managers/FontManager.h"
 
+std::vector<int> EpdFontLoader::loadedCustomIds;
+
 void EpdFontLoader::loadFontsFromSd(GfxRenderer& renderer) {
+  loadedCustomIds.clear();
+
   // Check settings for custom font
   if (SETTINGS.fontFamily == CrossPointSettings::FONT_CUSTOM) {
     if (strlen(SETTINGS.customFontFamily) > 0) {
@@ -50,6 +56,7 @@ void EpdFontLoader::loadFontsFromSd(GfxRenderer& renderer) {
         Serial.printf("[FontLoader] Inserting custom font '%s' with ID %d (key: %s)\n", SETTINGS.customFontFamily, id,
                       key.c_str());
         renderer.insertFont(id, *family);
+        loadedCustomIds.push_back(id);
       } else {
         Serial.println("Failed to load custom font family");
       }
@@ -60,15 +67,24 @@ void EpdFontLoader::loadFontsFromSd(GfxRenderer& renderer) {
 int EpdFontLoader::getBestFontId(const char* familyName, int size) {
   if (!familyName || strlen(familyName) == 0) return -1;
 
-  // We assume the font is loaded if we are asking for its ID,
-  // or at least that the ID generation is deterministic.
-  // The renderer uses the ID to look up the font.
-  // If we return an ID that isn't inserted, renderer might crash or show nothing.
-  // So we should ideally check if it's available.
-
   // For now, just return the deterministic hash.
   std::string key = std::string(familyName) + "-" + std::to_string(size);
   uint32_t hash = 5381;
   for (char c : key) hash = ((hash << 5) + hash) + c;
-  return (int)hash;
+  int id = (int)hash;
+
+  // Verify if the font was actually loaded
+  bool found = false;
+  for (int loadedId : loadedCustomIds) {
+    if (loadedId == id) {
+      found = true;
+      break;
+    }
+  }
+
+  if (found) {
+    return id;
+  } else {
+    return -1;  // Fallback to builtin font
+  }
 }
