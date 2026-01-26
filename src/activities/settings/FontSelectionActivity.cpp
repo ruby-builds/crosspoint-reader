@@ -76,9 +76,6 @@ void FontSelectionActivity::saveAndExit() {
     SETTINGS.customFontFamily[sizeof(SETTINGS.customFontFamily) - 1] = '\0';
     SETTINGS.fontFamily = CrossPointSettings::FONT_CUSTOM;
     SETTINGS.saveToFile();
-
-    // Reload fonts to make sure the newly selected font is loaded
-    EpdFontLoader::loadFontsFromSd(renderer);
   }
   onClose();
 }
@@ -118,6 +115,10 @@ void FontSelectionActivity::render() const {
 
     y += 30;
   }
+
+  // Draw help text
+  const auto labels = mappedInput.mapLabels("« Back", "Select", "", "");
+  renderer.drawButtonHints(UI_10_FONT_ID, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
 }
