@@ -29,12 +29,21 @@ void stripSoftHyphensInPlace(std::string& word) {
   }
 }
 
+bool isAttachedPunctuation(const std::string& word) {
+  if (word.length() == 1) {
+    char c = word[0];
+    return c == '.' || c == ',' || c == ';' || c == ':' || c == '!' || c == '?' || c == ')' || c == ']' || c == '}';
+  }
+  if (word == "..." || word == "\"" || word == "\'") return true;
+  return false;
+}
+
 // Returns the rendered width for a word while ignoring soft hyphen glyphs and optionally appending a visible hyphen.
 uint16_t measureWordWidth(const GfxRenderer& renderer, const int fontId, const std::string& word,
                           const EpdFontFamily::Style style, const bool appendHyphen = false) {
   const bool hasSoftHyphen = containsSoftHyphen(word);
   if (!hasSoftHyphen && !appendHyphen) {
-    return renderer.getTextWidth(fontId, word.c_str(), style);
+    return renderer.getTextAdvance(fontId, word.c_str(), style);
   }
 
   std::string sanitized = word;
@@ -44,7 +53,7 @@ uint16_t measureWordWidth(const GfxRenderer& renderer, const int fontId, const s
   if (appendHyphen) {
     sanitized.push_back('-');
   }
-  return renderer.getTextWidth(fontId, sanitized.c_str(), style);
+  return renderer.getTextAdvance(fontId, sanitized.c_str(), style);
 }
 
 }  // namespace
@@ -70,17 +79,24 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
   const int pageWidth = viewportWidth;
   const int spaceWidth = renderer.getSpaceWidth(fontId);
   auto wordWidths = calculateWordWidths(renderer, fontId);
+
+  std::vector<bool> attachToPrevious;
+  attachToPrevious.reserve(words.size());
+  for (const auto& word : words) {
+    attachToPrevious.push_back(isAttachedPunctuation(word));
+  }
+
   std::vector<size_t> lineBreakIndices;
   if (hyphenationEnabled) {
     // Use greedy layout that can split words mid-loop when a hyphenated prefix fits.
     lineBreakIndices = computeHyphenatedLineBreaks(renderer, fontId, pageWidth, spaceWidth, wordWidths);
   } else {
-    lineBreakIndices = computeLineBreaks(renderer, fontId, pageWidth, spaceWidth, wordWidths);
+    lineBreakIndices = computeLineBreaks(renderer, fontId, pageWidth, spaceWidth, wordWidths, attachToPrevious);
   }
   const size_t lineCount = includeLastLine ? lineBreakIndices.size() : lineBreakIndices.size() - 1;
 
   for (size_t i = 0; i < lineCount; ++i) {
-    extractLine(i, pageWidth, spaceWidth, wordWidths, lineBreakIndices, processLine);
+    extractLine(i, pageWidth, spaceWidth, wordWidths, lineBreakIndices, processLine, attachToPrevious);
   }
 }
 
@@ -104,7 +120,8 @@ std::vector<uint16_t> ParsedText::calculateWordWidths(const GfxRenderer& rendere
 }
 
 std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, const int fontId, const int pageWidth,
-                                                  const int spaceWidth, std::vector<uint16_t>& wordWidths) {
+                                                  const int spaceWidth, std::vector<uint16_t>& wordWidths,
+                                                  const std::vector<bool>& attachToPrevious) {
   if (words.empty()) {
     return {};
   }
@@ -135,7 +152,8 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 
     for (size_t j = i; j < totalWordCount; ++j) {
       // Current line length: previous width + space + current word width
-      currlen += wordWidths[j] + spaceWidth;
+      const int spacing = (attachToPrevious[j] && j > i) ? 0 : spaceWidth;
+      currlen += wordWidths[j] + spacing;
 
       if (currlen > pageWidth) {
         break;
@@ -329,7 +347,8 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
 
 void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const int spaceWidth,
                              const std::vector<uint16_t>& wordWidths, const std::vector<size_t>& lineBreakIndices,
-                             const std::function<void(std::shared_ptr<TextBlock>)>& processLine) {
+                             const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
+                             const std::vector<bool>& attachToPrevious) {
   const size_t lineBreak = lineBreakIndices[breakIndex];
   const size_t lastBreakAt = breakIndex > 0 ? lineBreakIndices[breakIndex - 1] : 0;
   const size_t lineWordCount = lineBreak - lastBreakAt;
@@ -363,7 +382,13 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
   for (size_t i = lastBreakAt; i < lineBreak; i++) {
     const uint16_t currentWordWidth = wordWidths[i];
     lineXPos.push_back(xpos);
-    xpos += currentWordWidth + spacing;
+
+    // Adjust spacing for next word if it is attached punctuation
+    int nextSpacing = spacing;
+    if (i + 1 < lineBreak && attachToPrevious[i + 1]) {
+      nextSpacing = 0;
+    }
+    xpos += currentWordWidth + nextSpacing;
   }
 
   // Iterators always start at the beginning as we are moving content with splice below
